@@ -181,7 +181,14 @@
       const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
       stream.getVideoTracks().forEach((t) => t.stop()); // we only want the audio
       const tracks = stream.getAudioTracks();
-      if (!tracks.length) { cue.log('system audio: no loopback track (macOS loopback unsupported here)'); stream.getTracks().forEach((t) => t.stop()); return; }
+      if (!tracks.length) {
+        const platformHint = cue.platform === 'win32'
+          ? 'On Windows, check that your Electron/Windows build exposes loopback capture.'
+          : 'Loopback capture is not available from this OS/build.';
+        cue.log('system audio: no loopback track. ' + platformHint);
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
       sysStream = stream;
       sysCtx = new AudioContext({ sampleRate: 16000 });
       await sysCtx.audioWorklet.addModule('./pcm-processor.js');
@@ -331,6 +338,10 @@
         { label: 'Open Microphone settings', action: () => cue.openPane('x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone') },
         { label: 'Open Screen Recording settings', action: () => cue.openPane('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture') }
       ]
+    }] : cue.platform === 'win32' ? [{
+      icon: '🔐',
+      title: 'Allow cue to hear you',
+      body: 'On Windows, cue uses standard Electron desktop and microphone capture. If Windows or your security software asks for access, allow it.<ul><li><strong>Microphone</strong> — needed for your side of the conversation</li><li><strong>Desktop/system audio</strong> — used for meeting audio when Windows exposes loopback capture</li></ul>If microphone capture fails, check Windows Settings → Privacy & security → Microphone and allow desktop apps.'
     }] : []),
     {
       icon: '🔑',
@@ -343,7 +354,7 @@
       title: 'Stay hidden in Zoom',
       body: cue.platform === 'darwin'
         ? 'cue is hidden from most screen shares automatically (Google Meet, Teams, QuickTime — nothing to do). <strong>Zoom needs one setting:</strong><br><br>Zoom → <span class="hl">Settings</span> → <span class="hl">Share Screen</span> → <span class="hl">Advanced</span> → <strong>Screen capture mode</strong> → choose <strong>“Advanced capture with window filtering.”</strong><br><br>Avoid “<strong>without</strong> window filtering” — that mode reveals cue.'
-        : 'cue is hidden from screen shares automatically. <strong>For Zoom:</strong><br><br>Zoom → <span class="hl">Settings</span> → <span class="hl">Share Screen</span> → <span class="hl">Advanced</span> → <strong>Screen capture mode</strong> → choose <strong>“Advanced capture with window filtering.”</strong>'
+        : 'cue asks Windows to exclude the overlay from screen capture, but this is best-effort and depends on the capture app and Windows version. <strong>For Zoom:</strong><br><br>Zoom → <span class="hl">Settings</span> → <span class="hl">Share Screen</span> → <span class="hl">Advanced</span> → <strong>Screen capture mode</strong> → choose <strong>“Advanced capture with window filtering.”</strong>'
     },
     {
       icon: '✨',

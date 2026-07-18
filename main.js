@@ -9,6 +9,9 @@ const { MODES } = require('./src/prompts');
 const { rms16 } = require('./src/wav');
 
 let win = null;
+const PLATFORM = process.platform;
+const IS_MAC = PLATFORM === 'darwin';
+const IS_WIN = PLATFORM === 'win32';
 
 // -------- capture / transcript state --------
 const state = { capturing: false, busy: false, transcribing: { you: false, them: false } };
@@ -47,8 +50,14 @@ function createWindow() {
   });
 
   // Invisibility + overlay behavior. Set CUE_NO_PROTECT=1 to disable for debugging.
-  win.setContentProtection(!process.env.CUE_NO_PROTECT);            // excluded from screen capture (best-effort)
-  if (process.platform === 'darwin') {
+  // macOS maps this to NSWindowSharingNone. Windows maps this to OS capture
+  // exclusion APIs on supported Windows 10/11 builds. It is still best-effort.
+  try {
+    win.setContentProtection(!process.env.CUE_NO_PROTECT);
+  } catch (e) {
+    console.log('[cue] content protection unavailable:', e && e.message);
+  }
+  if (IS_MAC) {
     win.setAlwaysOnTop(true, 'screen-saver', 1);
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     if (typeof win.setHiddenInMissionControl === 'function') win.setHiddenInMissionControl(true);
@@ -164,7 +173,7 @@ async function runFeature(mode, userText) {
       }
       catch (e) { 
         if (DEBUG) console.error('[DEBUG MAIN] Screenshot capture failed:', e);
-        send('status', { message: 'Screen capture needs permission — grant Screen Recording to cue in System Settings.' }); 
+        send('status', { message: screenCaptureHelpText() });
       }
     }
 
@@ -204,16 +213,24 @@ function registerShortcuts() {
   globalShortcut.register('CommandOrControl+Shift+X', () => app.quit());
 }
 
+function screenCaptureHelpText() {
+  if (IS_MAC) return 'Screen capture needs permission — grant Screen Recording to cue in System Settings, then reopen cue.';
+  if (IS_WIN) return 'Screen capture failed. On Windows, check Windows privacy/security settings and make sure no other app is blocking desktop capture.';
+  return 'Screen capture failed. Check your OS screen-capture permissions and try again.';
+}
+
 // -------- lifecycle --------
 app.whenReady().then(() => {
   if (app.dock) app.dock.hide();
+  if (IS_WIN) app.setAppUserModelId('com.cue.overlay');
 
   const allowMedia = (permission) => permission === 'media' || permission === 'microphone' || permission === 'audioCapture' || permission === 'display-capture';
   session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(allowMedia(permission)));
   session.defaultSession.setPermissionCheckHandler((_wc, permission) => allowMedia(permission));
 
   // System-audio loopback for getDisplayMedia: hand back a screen source with 'loopback'
-  // audio so the renderer can capture what's playing (Zoom/Meet) using cue's own grant.
+  // audio so the renderer can capture what's playing (Zoom/Meet) using cue's own process.
+  // This is supported by Electron on Windows/macOS where the OS exposes loopback capture.
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
     desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
       if (sources.length) callback({ video: sources[0], audio: 'loopback' });
